@@ -77,7 +77,7 @@ jobs:
         with:
           registry: ghcr.io
           username: '${{ github.actor }}'
-          password: '${{ secrets.PAT_TOKEN }}'
+          password: '${{ secrets.APP_TOKEN }}'
 
       - name: 📤 Push to GitHub Container Registry
         run: |
