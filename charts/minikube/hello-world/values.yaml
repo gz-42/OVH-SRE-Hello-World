@@ -1,5 +1,5 @@
 appName: hello-world
-namespace: hello-world
+namespace: prod
 replicaCount: 2
 
 image:
