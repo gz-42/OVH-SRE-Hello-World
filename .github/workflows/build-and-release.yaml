@@ -104,3 +104,27 @@ jobs:
         with:
           name: 'Release ${{ steps.set_version.outputs.version }}'
           tag_name: '${{ steps.set_version.outputs.version }}'
+
+  update-tag:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: 🛎️ Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🏷️ Update Helm chart tag
+        run: |
+          # Update Helm chart values.yaml
+          cd charts/minikube/hello-world/
+          sed -i "s+tag:.*+tag: \"${{ needs.build-and-push.outputs.version }}\"+g" values.yaml
+          
+          # Configure git
+          git config --global user.name "Keo"
+          git config --global user.email "keo@gz-42.com"
+          
+          # Commit and push
+          git add -A
+          git commit -m "🏷️ Update image tag to ${{ needs.build-and-push.outputs.version }}" || echo "No changes to commit"
+          git push origin ${{ github.ref_name }}
