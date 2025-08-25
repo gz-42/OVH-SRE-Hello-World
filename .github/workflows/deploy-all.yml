@@ -1,0 +1,87 @@
+name: Deploy All - Complete Infrastructure Setup
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  inject-ssh-key:
+    name: Step 1 - Inject SSH Key
+    uses: ./.github/workflows/inject-ssh-key.yml
+    secrets: inherit
+
+  harden-host-security:
+    name: Step 2 - Harden Host Security
+    needs: inject-ssh-key
+    uses: ./.github/workflows/harden-host-security.yml
+    secrets: inherit
+
+  configure-system:
+    name: Step 3 - Configure System
+    needs: harden-host-security
+    uses: ./.github/workflows/configure-system.yml
+    secrets: inherit
+
+  deploy-docker:
+    name: Step 4 - Deploy Docker
+    needs: configure-system
+    uses: ./.github/workflows/deploy-docker.yml
+    secrets: inherit
+
+  k8s-prep:
+    name: Step 5 - K8s Preparation
+    needs: deploy-docker
+    uses: ./.github/workflows/k8s-prep.yml
+    secrets: inherit
+
+  terraform-prep:
+    name: Step 6 - Terraform Preparation
+    needs: k8s-prep
+    uses: ./.github/workflows/terraform-prep.yml
+    secrets: inherit
+
+  deploy-terraform-code:
+    name: Step 7 - Deploy Terraform Code
+    needs: terraform-prep
+    uses: ./.github/workflows/deploy-terraform-code.yml
+    secrets: inherit
+
+  completion-summary:
+    name: Deployment Complete
+    needs: [inject-ssh-key, harden-host-security, configure-system, deploy-docker, k8s-prep, terraform-prep, deploy-terraform-code]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Summary
+        run: |
+          echo "## Infrastructure Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Step | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 1. Inject SSH Key | ${{ needs.inject-ssh-key.result == 'success' && 'Success' || 'Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 2. Harden Host Security | ${{ needs.harden-host-security.result == 'success' && 'Success' || 'Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 3. Configure System | ${{ needs.configure-system.result == 'success' && 'Success' || 'Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 4. Deploy Docker | ${{ needs.deploy-docker.result == 'success' && 'Success' || 'Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 5. K8s Preparation | ${{ needs.k8s-prep.result == 'success' && 'Success' || 'Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 6. Terraform Preparation | ${{ needs.terraform-prep.result == 'success' && 'Success' || 'Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 7. Deploy Terraform Code | ${{ needs.deploy-terraform-code.result == 'success' && 'Success' || 'Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Check overall status
+          if [[ "${{ needs.inject-ssh-key.result }}" == "success" && \
+                "${{ needs.harden-host-security.result }}" == "success" && \
+                "${{ needs.configure-system.result }}" == "success" && \
+                "${{ needs.deploy-docker.result }}" == "success" && \
+                "${{ needs.k8s-prep.result }}" == "success" && \
+                "${{ needs.terraform-prep.result }}" == "success" && \
+                "${{ needs.deploy-terraform-code.result }}" == "success" ]]; then
+            echo "### All steps completed successfully!" >> $GITHUB_STEP_SUMMARY
+            echo "Your infrastructure is now fully deployed and ready to use." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### Some steps failed" >> $GITHUB_STEP_SUMMARY
+            echo "Please check the individual workflow logs for more details." >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
