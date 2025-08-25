@@ -1,0 +1,11 @@
+---
+terraform_project_repo: "https://github.com/42-gz/OVH-SRE-Hello-World.git"
+terraform_project_branch: "terraform"
+terraform_project_dir: "OVH-SRE-Hello-World"
+terraform_working_dir: "{{ terraform_project_dir }}/terraform"
+
+user_home: "/home/{{ ansible_user }}"
+
+terraform_init_enabled: true
+
+fail_if_exists: true

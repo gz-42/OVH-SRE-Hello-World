@@ -1,0 +1,13 @@
+#!/bin/bash
+# Restore SSH backup script deployed by Ansible
+set -e
+BACKUP_DIR="{{ backup_dir }}"
+LATEST=$(ls -1t ${BACKUP_DIR}/ssh_backup_*.tgz | head -n1)
+if [ -z "${LATEST}" ]; then
+  echo "No backup found in ${BACKUP_DIR}" >&2
+  exit 1
+fi
+mkdir -p /tmp/ssh_restore
+tar xzf "${LATEST}" -C /tmp/ssh_restore
+cp -r /tmp/ssh_restore/ssh/* /etc/ssh/
+systemctl restart ssh || service ssh restart

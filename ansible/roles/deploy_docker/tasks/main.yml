@@ -1,0 +1,313 @@
+---
+- name: Ensure apt-transport-https and ca-certificates
+  apt:
+    name: [apt-transport-https, ca-certificates, curl, gnupg]
+    state: present
+    update_cache: yes
+
+- name: Ensure /etc/apt/keyrings exists (Debian keyrings layout)
+  file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+  when: ansible_distribution == 'Debian' or ansible_os_family == 'Debian'
+
+- name: Fetch Docker GPG and write keyring to /etc/apt/keyrings/docker.asc
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/debian/gpg
+    dest: /etc/apt/keyrings/docker.asc
+    mode: '0644'
+  when: ansible_distribution == 'Debian' or ansible_os_family == 'Debian'
+
+- name: Ensure Docker apt key file is world-readable
+  ansible.builtin.file:
+    path: /etc/apt/keyrings/docker.asc
+    mode: '0644'
+  when: ansible_distribution == 'Debian' or ansible_os_family == 'Debian'
+
+- name: Add Docker apt repository
+  apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian {{ ansible_lsb.codename }} stable"
+    state: present
+    filename: docker
+  notify: apt-update
+
+- name: Install Docker packages
+  apt:
+    name: "{{ docker_packages }}"
+    state: "{{ docker_package_state }}"
+    update_cache: yes
+
+- name: Ensure /etc/docker exists
+  file:
+    path: /etc/docker
+    state: directory
+    mode: '0755'
+
+- name: Deploy docker daemon.json
+  template:
+    src: daemon.json.j2
+    dest: /etc/docker/daemon.json
+    mode: '0644'
+  notify: restart docker
+
+- name: Ensure docker service is enabled and started
+  service:
+    name: docker
+    state: started
+    enabled: yes
+
+- name: Ensure conntrack kernel modules are loaded now
+  ansible.builtin.shell: |
+    for m in nf_conntrack xt_conntrack nf_conntrack_ipv6 nf_defrag_ipv6; do
+      modprobe "$m" || true
+    done
+  changed_when: false
+
+- name: Persist conntrack module load on boot
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/conntrack.conf
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      # Ensure conntrack modules are loaded for iptables conntrack matches
+      nf_conntrack
+      xt_conntrack
+      nf_conntrack_ipv6
+      nf_defrag_ipv6
+
+- name: Save current IPv4 iptables rules to backup
+  ansible.builtin.command:
+    cmd: >-
+      sh -c "iptables-save > {{ backup_dir }}/iptables_rules_v4_{{ ansible_date_time.iso8601_basic }}.rules || true"
+  changed_when: false
+
+- name: Save current IPv6 ip6tables rules to backup
+  ansible.builtin.command:
+    cmd: >-
+      sh -c "ip6tables-save > {{ backup_dir }}/iptables_rules_v6_{{ ansible_date_time.iso8601_basic }}.rules || true"
+  changed_when: false
+
+- name: Preseed iptables-persistent to avoid interactive prompts
+  ansible.builtin.debconf:
+    name: iptables-persistent
+    question: iptables-persistent/autosave_v4
+    value: 'true'
+    vtype: boolean
+
+- name: Preseed iptables-persistent for IPv6 autosave
+  ansible.builtin.debconf:
+    name: iptables-persistent
+    question: iptables-persistent/autosave_v6
+    value: 'true'
+    vtype: boolean
+
+- name: Install iptables-persistent/netfilter-persistent and iptables package
+  apt:
+    name:
+      - iptables-persistent
+      - netfilter-persistent
+      - iptables
+    state: present
+    update_cache: yes
+
+- name: Build idempotent IPv4 iptables rules to allow SSH/HTTP/HTTPS and deny other INPUT
+  ansible.builtin.copy:
+    dest: /etc/iptables/rules.v4
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      *filter
+      :INPUT ACCEPT [0:0]
+      :FORWARD ACCEPT [0:0]
+      :OUTPUT ACCEPT [0:0]
+      :DOCKER - [0:0]
+      :DOCKER-BRIDGE - [0:0]
+      :DOCKER-CT - [0:0]
+      :DOCKER-FORWARD - [0:0]
+      :DOCKER-ISOLATION-STAGE-1 - [0:0]
+      :DOCKER-ISOLATION-STAGE-2 - [0:0]
+      :DOCKER-USER - [0:0]
+      :f2b-sshd - [0:0]
+      -A INPUT -i lo -j ACCEPT
+      -A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+      -A INPUT -p icmp -j ACCEPT
+      -A INPUT -i ens18 -p tcp -m multiport --dports 22,80,443 -m conntrack --ctstate NEW -j ACCEPT
+      -A INPUT -i ens18 -p tcp -m multiport ! --dports 22,80,443 -j DROP
+      -A INPUT -i docker0 -j ACCEPT
+      -A INPUT -p tcp -j f2b-sshd
+      -A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+      -A FORWARD -d 10.244.0.0/16 -j ACCEPT
+      -A FORWARD -s 10.244.0.0/16 -j ACCEPT
+      -A FORWARD -d 10.96.0.0/12 -j ACCEPT
+      -A FORWARD -s 10.96.0.0/12 -j ACCEPT
+      -A FORWARD -i bridge -j ACCEPT
+      -A FORWARD -o bridge -j ACCEPT
+      -A FORWARD -i docker0 -j ACCEPT
+      -A FORWARD -o docker0 -j ACCEPT
+      -A FORWARD -j DOCKER-USER
+      -A FORWARD -j DOCKER-FORWARD
+      -A DOCKER ! -i docker0 -o docker0 -j DROP
+      -A DOCKER-BRIDGE -o docker0 -j DOCKER
+      -A DOCKER-CT -o docker0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+      -A DOCKER-FORWARD -j DOCKER-CT
+      -A DOCKER-FORWARD -j DOCKER-ISOLATION-STAGE-1
+      -A DOCKER-FORWARD -j DOCKER-BRIDGE
+      -A DOCKER-FORWARD -i docker0 -j ACCEPT
+      -A DOCKER-ISOLATION-STAGE-1 -i docker0 ! -o docker0 -j DOCKER-ISOLATION-STAGE-2
+      -A DOCKER-ISOLATION-STAGE-2 -o docker0 -j DROP
+      -A f2b-sshd -j RETURN
+      COMMIT
+      *nat
+      :PREROUTING ACCEPT [0:0]
+      :INPUT ACCEPT [0:0]
+      :OUTPUT ACCEPT [0:0]
+      :POSTROUTING ACCEPT [0:0]
+      :DOCKER - [0:0]
+      -A POSTROUTING -s 172.17.0.0/16 ! -o docker0 -j MASQUERADE
+      -A POSTROUTING -s 172.20.0.0/24 ! -o docker0 -j MASQUERADE
+      COMMIT
+
+- name: Build idempotent IPv6 ip6tables rules to allow SSH/HTTP/HTTPS and deny other INPUT
+  ansible.builtin.copy:
+    dest: /etc/iptables/rules.v6
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      *filter
+      :INPUT ACCEPT [0:0]
+      :FORWARD ACCEPT [0:0]
+      :OUTPUT ACCEPT [0:0]
+      -A INPUT -i lo -j ACCEPT
+      -A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+      -A INPUT -p ipv6-icmp -j ACCEPT
+      -A INPUT -i ens18 -p tcp -m multiport --dports 22,80,443 -m conntrack --ctstate NEW -j ACCEPT
+      -A INPUT -i ens18 -p tcp -m multiport ! --dports 22,80,443 -j DROP
+      -A INPUT -i docker0 -j ACCEPT
+      -A INPUT -i bridge -j ACCEPT
+      -A INPUT -s fe80::/10 -j ACCEPT
+      -A INPUT -s fd20::/80 -j ACCEPT
+      -A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+      -A FORWARD -i bridge -j ACCEPT
+      -A FORWARD -o bridge -j ACCEPT
+      -A FORWARD -i docker0 -j ACCEPT
+      -A FORWARD -o docker0 -j ACCEPT
+      COMMIT
+      *nat
+      :PREROUTING ACCEPT [0:0]
+      :INPUT ACCEPT [0:0]
+      :OUTPUT ACCEPT [0:0]
+      :POSTROUTING ACCEPT [0:0]
+      COMMIT
+
+- name: Apply IPv4 rules immediately (iptables-restore)
+  ansible.builtin.command:
+    cmd: iptables-restore /etc/iptables/rules.v4
+  register: iptables_restore_v4
+  changed_when: iptables_restore_v4.rc == 0
+
+- name: Apply IPv6 rules immediately (ip6tables-restore)
+  ansible.builtin.command:
+    cmd: ip6tables-restore /etc/iptables/rules.v6
+  register: ip6tables_restore_v6
+  changed_when: ip6tables_restore_v6.rc == 0
+
+- name: Persist current rules via netfilter-persistent
+  ansible.builtin.command:
+    cmd: netfilter-persistent save
+  changed_when: false
+
+- name: Start temporary rollback timer for iptables (restore on failure if not confirmed)
+  ansible.builtin.shell: |
+    /bin/bash -c '(
+      sleep 60 && 
+      if [ ! -f /tmp/iptables-hardening-ok ]; then
+        if [ -f "{{ backup_dir }}/iptables_rules_v4_{{ ansible_date_time.iso8601_basic }}.rules" ]; then
+          iptables-restore {{ backup_dir }}/iptables_rules_v4_{{ ansible_date_time.iso8601_basic }}.rules || true
+        fi
+        if [ -f "{{ backup_dir }}/iptables_rules_v6_{{ ansible_date_time.iso8601_basic }}.rules" ]; then
+          ip6tables-restore {{ backup_dir }}/iptables_rules_v6_{{ ansible_date_time.iso8601_basic }}.rules || true
+        fi
+      fi
+    ) &'
+  async: 0
+  poll: 0
+
+- name: Create marker file to confirm iptables changes (manual step to disable rollback)
+  ansible.builtin.file:
+    path: /tmp/iptables-hardening-ok
+    state: touch
+  when: iptables_restore_v4.rc == 0 or ip6tables_restore_v6.rc == 0
+
+- name: Configure IPv6 NAT (when VPS has /128 and ipv6 enabled)
+  block:
+    - name: Enable ipv6 forwarding
+      sysctl:
+        name: net.ipv6.conf.all.forwarding
+        value: '1'
+        state: present
+
+    - name: Add ip6tables MASQUERADE rule for docker subnet (if fixed CIDR defined)
+      block:
+        - name: Check existing ip6tables MASQUERADE rule
+          ansible.builtin.command: >
+            ip6tables -t nat -C POSTROUTING -s {{ docker_fixed_cidr_v6 }} ! -o {{ docker_bridge_name }} -j MASQUERADE
+          register: check_nat
+          failed_when: false
+          changed_when: false
+
+        - name: Insert ip6tables MASQUERADE if missing
+          ansible.builtin.command: >
+            ip6tables -t nat -A POSTROUTING -s {{ docker_fixed_cidr_v6 }} ! -o {{ docker_bridge_name }} -j MASQUERADE
+          when: check_nat.rc != 0
+      when: docker_fixed_cidr_v6 is defined and docker_fixed_cidr_v6
+
+    - name: Save iptables rules
+      ansible.builtin.command: netfilter-persistent save
+      changed_when: true
+  when: docker_ipv6_enabled
+
+- name: Add users to docker group
+  user:
+    name: "{{ item }}"
+    groups: docker
+    append: yes
+  loop: "{{ docker_users }}"
+
+- name: Validate docker daemon is responsive
+  command: docker info
+  register: docker_info
+  changed_when: false
+  failed_when: docker_info.rc != 0
+
+- name: Check IPv6 address on docker bridge (if enabled)
+  command: ip -6 addr show dev {{ docker_bridge_name }}
+  register: ip6
+  changed_when: false
+  failed_when: docker_ipv6_enabled and ip6.rc != 0
+  when: docker_ipv6_enabled
+
+- name: Create a user-defined docker network with IPv6 if not existing (only if fixed CIDRs defined)
+  community.docker.docker_network:
+    name: ansible_default
+    driver: bridge
+    ipam_config:
+      - subnet: "{{ docker_fixed_cidr_v4 }}"
+      - subnet: "{{ docker_fixed_cidr_v6 }}"
+    enable_ipv4: true
+    enable_ipv6: true
+    internal: no
+    state: present
+  when: 
+    - docker_ipv6_enabled
+    - docker_fixed_cidr_v4 is defined and docker_fixed_cidr_v4
+    - docker_fixed_cidr_v6 is defined and docker_fixed_cidr_v6
+  register: created_net
+
+- name: Debug docker network creation
+  debug:
+    msg: "Created network: {{ created_net }}"
+  when: created_net is defined

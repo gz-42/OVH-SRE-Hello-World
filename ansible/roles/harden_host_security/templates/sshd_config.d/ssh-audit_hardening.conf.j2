@@ -1,0 +1,17 @@
+# SSH hardening drop-in managed by Ansible
+# Automatically generated from role 'security' variables
+
+KexAlgorithms {{ ssh_preferred_kex | join(',') }}
+Ciphers {{ ssh_preferred_ciphers | join(',') }}
+MACs {{ ssh_preferred_macs | join(',') }}
+HostKeyAlgorithms {{ ssh_host_key_algorithms | join(',') }}
+
+# Additional safety settings
+Port {{ ssh_port }}
+PermitRootLogin no
+PasswordAuthentication no
+ChallengeResponseAuthentication no
+UsePAM yes
+X11Forwarding no
+AllowTcpForwarding yes
+PermitEmptyPasswords no

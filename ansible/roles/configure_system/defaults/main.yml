@@ -1,0 +1,14 @@
+---
+system_timezone: "Europe/Paris"
+enable_locales:
+  - "en_US.UTF-8 UTF-8"
+  - "fr_FR.UTF-8 UTF-8"
+packages_common:
+  - unattended-upgrades
+  - apt-listchanges
+  - locales
+  - curl
+  - ca-certificates
+  - gnupg
+  - lsb-release
+  - software-properties-common

@@ -1,0 +1,18 @@
+---
+galaxy_info:
+  author: Ansible VPS Automation
+  description: Security hardening with SSH, UFW, and Fail2Ban configuration
+  min_ansible_version: 2.18
+  platforms:
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+        - trixie
+  galaxy_tags:
+    - security
+    - ssh
+    - fail2ban
+    - hardening
+
+dependencies: []

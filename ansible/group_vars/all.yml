@@ -1,0 +1,13 @@
+ssh_public_key: "{{ lookup('env','SSH_PUBLIC_KEY') }}"
+ssh_private_key: "{{ lookup('env','SSH_PRIVATE_KEY') }}"
+
+vps_ip: "{{ lookup('env','VPS_IP') }}"
+ssh_user: "{{ lookup('env','SSH_USER') }}"
+ssh_port: "{{ lookup('env','SSH_PORT') }}"
+
+ansible_connection_host: "{{ lookup('env','VPS_IP') }}"
+ansible_connection_user: "{{ lookup('env','SSH_USER') }}"
+ansible_connection_port: "{{ lookup('env','SSH_PORT') }}"
+ansible_ssh_password: "{{ lookup('env','ANSIBLE_SSH_PASS') }}"
+ansible_ssh_public_key: "{{ lookup('env','SSH_PUBLIC_KEY') }}"
+ansible_ssh_private_key_path: "{{ lookup('env','SSH_PRIVATE_KEY') }}"

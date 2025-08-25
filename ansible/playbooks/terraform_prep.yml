@@ -1,0 +1,7 @@
+---
+- name: Terraform Prep
+  hosts: all
+  vars_files:
+    - ../group_vars/all.yml
+  roles:
+    - { role: terraform_prep }

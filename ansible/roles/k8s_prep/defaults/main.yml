@@ -1,0 +1,9 @@
+---
+crictl_version: v1.34.0
+crictl_install: true
+cni_plugins_version: v1.7.1
+cni_plugins_install: true
+cri_dockerd_version: 0.3.18
+cri_dockerd_install: true
+kubectl_install: true
+minikube_install: true

@@ -1,0 +1,3 @@
+---
+terraform_install: true
+terraform_version: ""  # empty = latest version

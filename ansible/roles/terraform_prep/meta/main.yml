@@ -1,0 +1,18 @@
+---
+galaxy_info:
+  author: Ansible VPS Automation
+  description: Terraform Preparation
+  min_ansible_version: 2.18
+  platforms:
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+        - trixie
+  galaxy_tags:
+    - terraform
+    - infrastructure
+    - provisioning
+    - automation
+
+dependencies: []

@@ -1,0 +1,27 @@
+---
+ssh_preferred_ciphers:
+  - "aes256-gcm@openssh.com"
+  - "aes128-gcm@openssh.com"
+  - "aes256-ctr"
+  - "aes128-ctr"
+
+ssh_preferred_kex:
+  - "sntrup761x25519-sha512"
+  - "sntrup761x25519-sha512@openssh.com"
+  - "curve25519-sha256"
+  - "curve25519-sha256@libssh.org"
+  - "diffie-hellman-group16-sha512"
+  - "diffie-hellman-group18-sha512"
+
+ssh_preferred_macs:
+  - "hmac-sha2-512-etm@openssh.com"
+  - "hmac-sha2-256-etm@openssh.com"
+  - "umac-128-etm@openssh.com"
+
+ssh_host_key_algorithms:
+  - "ssh-ed25519"
+  - "rsa-sha2-512"
+
+rollback_wait_seconds: 300
+backup_dir: /var/backups/ssh
+rollback_script_path: /usr/local/sbin/restore-ssh-backup.sh

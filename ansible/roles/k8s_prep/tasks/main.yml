@@ -1,0 +1,307 @@
+---
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Install prerequisite packages
+  ansible.builtin.apt:
+    name:
+      - conntrack
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg
+      - jq
+      - cgroupfs-mount
+      - libltdl7
+    state: present
+    update_cache: no
+
+- name: Ensure br_netfilter module is loaded
+  ansible.builtin.modprobe:
+    name: br_netfilter
+    state: present
+
+- name: Ensure sysctl settings required for Kubernetes
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/99-k8s.conf
+    content: |
+      net.bridge.bridge-nf-call-iptables = 1
+      net.bridge.bridge-nf-call-ip6tables = 1
+      net.ipv4.ip_forward = 1
+      net.ipv6.conf.all.forwarding = 1
+      fs.protected_regular = 0
+    owner: root
+    group: root
+    mode: '0644'
+  notify: reload sysctl
+
+- name: Apply sysctl settings
+  ansible.builtin.command: sysctl --system
+  changed_when: false
+
+- name: Download crictl archive
+  ansible.builtin.get_url:
+    url: "https://github.com/kubernetes-sigs/cri-tools/releases/download/{{ crictl_version }}/crictl-{{ crictl_version }}-linux-amd64.tar.gz"
+    dest: /tmp/crictl-{{ crictl_version }}.tar.gz
+    mode: '0644'
+  when: crictl_install | bool
+
+- name: Extract crictl
+  ansible.builtin.unarchive:
+    src: /tmp/crictl-{{ crictl_version }}.tar.gz
+    dest: /usr/local/bin/
+    remote_src: yes
+  when: crictl_install | bool
+
+- name: Remove crictl archive
+  ansible.builtin.file:
+    path: /tmp/crictl-{{ crictl_version }}.tar.gz
+    state: absent
+  when: crictl_install | bool
+
+- name: Ensure /opt/cni/bin exists
+  ansible.builtin.file:
+    path: /opt/cni/bin
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Download CNI plugins
+  ansible.builtin.get_url:
+    url: "https://github.com/containernetworking/plugins/releases/download/{{ cni_plugins_version }}/cni-plugins-linux-amd64-{{ cni_plugins_version }}.tgz"
+    dest: /tmp/cni-plugins-{{ cni_plugins_version }}.tgz
+    mode: '0644'
+  when: cni_plugins_install | bool
+
+- name: Extract CNI plugins
+  ansible.builtin.unarchive:
+    src: /tmp/cni-plugins-{{ cni_plugins_version }}.tgz
+    dest: /opt/cni/bin
+    remote_src: yes
+  when: cni_plugins_install | bool
+  notify: set executable permissions for cni
+
+- name: Remove cni plugins archive
+  ansible.builtin.file:
+    path: /tmp/cni-plugins-{{ cni_plugins_version }}.tgz
+    state: absent
+  when: cni_plugins_install | bool
+
+- name: Download cri-dockerd archive
+  ansible.builtin.get_url:
+    url: "https://github.com/Mirantis/cri-dockerd/releases/download/v{{ cri_dockerd_version }}/cri-dockerd-{{ cri_dockerd_version }}.amd64.tgz"
+    dest: /tmp/cri-dockerd-{{ cri_dockerd_version }}.tgz
+    mode: '0644'
+  when: cri_dockerd_install | bool
+
+- name: Extract cri-dockerd archive to temporary dir
+  ansible.builtin.unarchive:
+    src: /tmp/cri-dockerd-{{ cri_dockerd_version }}.tgz
+    dest: /tmp/
+    remote_src: yes
+  when: cri_dockerd_install | bool
+
+- name: Copy cri-dockerd binary to /usr/local/bin
+  ansible.builtin.copy:
+    src: /tmp/cri-dockerd/cri-dockerd
+    dest: /usr/local/bin/cri-dockerd
+    remote_src: yes
+    mode: '0755'
+  when: cri_dockerd_install | bool
+
+- name: Remove cri-dockerd archive
+  ansible.builtin.file:
+    path: /tmp/cri-dockerd-{{ cri_dockerd_version }}.tgz
+    state: absent
+  when: cri_dockerd_install | bool
+  
+- name: Remove temporary extracted cri-dockerd directory
+  ansible.builtin.file:
+    path: "/tmp/cri-dockerd"
+    state: absent
+  when: cri_dockerd_install | bool
+
+- name: Create systemd service unit for cri-dockerd
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/cri-docker.service
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      [Unit]
+      Description=CRI Interface for Docker Application Container Engine
+      Documentation=https://docs.mirantis.com
+      After=network-online.target docker.service
+      Wants=network-online.target
+      Requires=cri-docker.socket
+
+      [Service]
+      Type=notify
+      ExecStart=/usr/local/bin/cri-dockerd --container-runtime-endpoint fd:// --pod-infra-container-image=registry.k8s.io/pause:3.9 --network-plugin=cni --hairpin-mode=hairpin-veth
+      ExecReload=/bin/kill -s HUP $MAINPID
+      TimeoutSec=0
+      RestartSec=2
+      Restart=always
+      StartLimitBurst=3
+      StartLimitInterval=60s
+      LimitNOFILE=infinity
+      LimitNPROC=infinity
+      LimitCORE=infinity
+      TasksMax=infinity
+      Delegate=yes
+      KillMode=process
+
+      [Install]
+      WantedBy=multi-user.target
+  when: cri_dockerd_install | bool
+
+- name: Create systemd socket unit for cri-dockerd
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/cri-docker.socket
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      [Unit]
+      Description=CRI Docker Socket for the API
+      PartOf=cri-docker.service
+
+      [Socket]
+      ListenStream=%t/cri-dockerd.sock
+      SocketMode=0660
+      SocketUser=root
+      SocketGroup=docker
+
+      [Install]
+      WantedBy=sockets.target
+  when: cri_dockerd_install | bool
+
+- name: Reload systemd to pick up cri-dockerd units
+  ansible.builtin.systemd:
+    daemon_reload: yes
+  when: cri_dockerd_install | bool
+
+- name: Enable and start cri-dockerd socket (socket activation)
+  ansible.builtin.systemd:
+    name: cri-docker.socket
+    state: started
+    enabled: yes
+  when: cri_dockerd_install | bool
+
+- name: Ensure cri-dockerd service is enabled (will be activated by socket)
+  ansible.builtin.systemd:
+    name: cri-docker.service
+    enabled: yes
+  when: cri_dockerd_install | bool
+
+- name: Ensure apt keyrings directory exists for kubernetes
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when: kubectl_install | default(true)
+
+- name: Add Kubernetes apt repository signing key to keyring
+  ansible.builtin.apt_key:
+    url: https://pkgs.k8s.io/core:/stable:/v1.33/deb/Release.key
+    keyring: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+    state: present
+  when: kubectl_install | default(true)
+
+- name: Ensure kubernetes apt source list exists
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/kubernetes.list
+    content: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.33/deb/ /\n"
+    owner: root
+    group: root
+    mode: '0644'
+  when: kubectl_install | default(true)
+
+- name: Update apt cache after adding kubernetes repo
+  ansible.builtin.apt:
+    update_cache: yes
+  when: kubectl_install | default(true)
+
+- name: Install kubectl
+  ansible.builtin.apt:
+    name: kubectl
+    state: present
+  when: kubectl_install | default(true)
+
+- name: Ensure kubectl bash completion is added to remote user's .bashrc
+  ansible.builtin.lineinfile:
+    path: "/home/{{ ansible_user | default('root') }}/.bashrc"
+    line: 'source <(kubectl completion bash)'
+    create: yes
+    state: present
+    insertafter: EOF
+  when: kubectl_install | default(true)
+
+- name: Source the user's .bashrc to enable kubectl completion for current session
+  ansible.builtin.shell: "source /home/{{ ansible_user | default('root') }}/.bashrc"
+  args:
+    executable: /bin/bash
+  changed_when: false
+  when: kubectl_install | default(true)
+
+- name: Download minikube binary
+  ansible.builtin.get_url:
+    url: "https://github.com/kubernetes/minikube/releases/latest/download/minikube-linux-amd64"
+    dest: /tmp/minikube-linux-amd64
+    mode: '0755'
+  when: minikube_install | bool
+
+- name: Install minikube binary
+  ansible.builtin.command: install /tmp/minikube-linux-amd64 /usr/local/bin/minikube
+  args:
+    creates: /usr/local/bin/minikube
+  when: minikube_install | bool
+
+- name: Remove minikube temporary binary
+  ansible.builtin.file:
+    path: /tmp/minikube-linux-amd64
+    state: absent
+  when: minikube_install | bool
+
+- name: Run minikube config set driver none
+  ansible.builtin.command: minikube config set driver none
+  when: minikube_install | bool
+
+- name: Validate kernel cgroup support (warn if not found)
+  ansible.builtin.shell: |
+    if grep -q cgroup /proc/filesystems; then echo ok; else echo missing; fi
+  register: cgroup_check
+  changed_when: false
+
+- name: Warn if cgroup support seems missing
+  ansible.builtin.debug:
+    msg: |
+      Kernel cgroup support check: {{ cgroup_check.stdout }}. If 'missing', the node may require kernel configuration.
+  when: cgroup_check.stdout != 'ok'
+
+- name: Validate that required crictl binary is present
+  ansible.builtin.command: |
+    bash -c "command -v crictl >/dev/null 2>&1 || echo 'crictl-missing'"
+  register: crictl_check
+  changed_when: false
+
+- name: Fail when crictl is required but not present
+  ansible.builtin.fail:
+    msg: "crictl not found after install steps; check network or crictl_version"
+  when: crictl_install | bool and crictl_check.stdout == 'crictl-missing'
+
+- name: Validate that cri-dockerd required binary is present
+  ansible.builtin.command: |
+    bash -c "command -v cri-dockerd >/dev/null 2>&1 || echo 'cri-dockerd-missing'"
+  register: cri_dockerd_check
+  changed_when: false
+
+- name: Fail when cri-dockerd is required but not present
+  ansible.builtin.fail:
+    msg: "cri-dockerd not found after install steps; check network or cri_dockerd_version"
+  when: cri_dockerd_install | bool and cri_dockerd_check.stdout == 'cri-dockerd-missing'

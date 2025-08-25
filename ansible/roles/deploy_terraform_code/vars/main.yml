@@ -1,0 +1,20 @@
+# Project Specific Variables
+project_name: "{{ lookup('env','PROJECT_NAME') }}"
+root_domain_name: "{{ lookup('env','ROOT_DOMAIN_NAME') }}"
+cluster_name: "{{ lookup('env','CLUSTER_NAME') }}"
+
+# Cert-Manager Variables
+email: "{{ lookup('env','EMAIL') }}"
+
+# ArgoCD Variables
+hello_world_repo: "{{ lookup('env','HELLO_WORLD_REPO') }}"
+argocd_hostname: "{{ lookup('env','ARGOCD_HOSTNAME') }}"
+hello_world_hostname: "{{ lookup('env','HELLO_WORLD_HOSTNAME') }}"
+hello_world_tls_secret: "{{ lookup('env','HELLO_WORLD_TLS_SECRET') }}"
+
+# Kube-Prometheus-Stack Variables
+grafana_hostname: "{{ lookup('env','GRAFANA_HOSTNAME') }}"
+grafana_pwd: "{{ lookup('env','GRAFANA_PWD') }}"
+grafana_tls_secret: "{{ lookup('env','GRAFANA_TLS_SECRET') }}"
+slack_webhook: "{{ lookup('env','SLACK_WEBHOOK') }}"
+slack_channel: "{{ lookup('env','SLACK_CHANNEL') }}"

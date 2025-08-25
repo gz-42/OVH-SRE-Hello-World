@@ -1,0 +1,20 @@
+---
+- name: restart fail2ban
+  service:
+    name: fail2ban
+    state: restarted
+
+- name: restart ssh
+  service:
+    name: ssh
+    state: restarted
+
+- name: create rollback timer
+  ansible.builtin.file:
+    path: /tmp/ssh-hardening-pending
+    state: touch
+    owner: root
+    mode: '0644'
+
+- name: remove rollback timer
+  ansible.builtin.command: rm -f /tmp/ssh-hardening-ok || true

@@ -1,0 +1,57 @@
+---
+- name: Check if terraform project directory already exists
+  ansible.builtin.stat:
+    path: "{{ user_home }}/{{ terraform_working_dir }}"
+  register: terraform_dir_check
+
+- name: Fail if terraform project already exists and output is requested
+  block:
+    - name: Get terraform output
+      ansible.builtin.command:
+        cmd: terraform output
+        chdir: "{{ user_home }}/{{ terraform_working_dir }}"
+      register: terraform_output_result
+      changed_when: false
+
+    - name: Display terraform output
+      ansible.builtin.debug:
+        msg: "{{ terraform_output_result.stdout }}"
+
+    - name: Fail because project already exists
+      ansible.builtin.fail:
+        msg: "Terraform project already exists at {{ user_home }}/{{ terraform_working_dir }}. Please destroy it first or set fail_if_exists to false."
+  when: 
+    - terraform_dir_check.stat.exists
+    - fail_if_exists | default(true)
+
+- name: Clone terraform project repository
+  ansible.builtin.git:
+    repo: "{{ terraform_project_repo }}"
+    dest: "{{ user_home }}/{{ terraform_project_dir }}"
+    version: "{{ terraform_project_branch }}"
+    force: no
+  when: not terraform_dir_check.stat.exists
+
+- name: Run terraform init
+  ansible.builtin.command:
+    cmd: terraform init
+    chdir: "{{ user_home }}/{{ terraform_working_dir }}"
+  register: terraform_init_result
+  changed_when: false
+  when: 
+    - terraform_init_enabled | default(true)
+    - not terraform_dir_check.stat.exists
+
+- name: Display terraform init output
+  ansible.builtin.debug:
+    msg: "{{ terraform_init_result.stdout }}"
+  when: 
+    - terraform_init_enabled | default(true)
+    - not terraform_dir_check.stat.exists
+
+- name: Create terraform.tfvars file with environment variables
+  ansible.builtin.template:
+    src: terraform.tfvars.j2
+    dest: "{{ user_home }}/{{ terraform_working_dir }}/terraform.tfvars"
+    mode: '0644'
+  when: not terraform_dir_check.stat.exists

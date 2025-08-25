@@ -1,0 +1,51 @@
+---
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Upgrade all packages
+  ansible.builtin.apt:
+    upgrade: dist
+    autoremove: yes
+
+- name: Install common packages
+  ansible.builtin.apt:
+    name: "{{ packages_common }}"
+    state: present
+    update_cache: yes
+
+- name: Ensure timezone is set
+  ansible.builtin.timezone:
+    name: "{{ system_timezone }}"
+
+- name: Ensure required locales are enabled
+  ansible.builtin.lineinfile:
+    path: /etc/locale.gen
+    line: "{{ item }}"
+    state: present
+  loop: "{{ enable_locales }}"
+  notify: regenerate locales
+
+- name: Configure unattended-upgrades
+  ansible.builtin.command:
+    cmd: dpkg-reconfigure -f noninteractive unattended-upgrades
+
+- name: Ensure apt-listchanges exists
+  ansible.builtin.apt:
+    name: apt-listchanges
+    state: present
+
+- name: Ensure /usr/sbin is in remote user's PATH via ~/.bashrc
+  ansible.builtin.lineinfile:
+    path: "/home/{{ ansible_user | default('root') }}/.bashrc"
+    line: 'export PATH=$PATH:/usr/sbin'
+    create: yes
+    state: present
+    insertafter: EOF
+
+- name: Source the user's .bashrc for the current session (no-op for future logins)
+  ansible.builtin.shell: "source /home/{{ ansible_user | default('root') }}/.bashrc"
+  args:
+    executable: /bin/bash
+  changed_when: false

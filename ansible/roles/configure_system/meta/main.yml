@@ -1,0 +1,18 @@
+---
+galaxy_info:
+  author: Ansible VPS Automation
+  description: System configuration for VPS (timezone, locale, packages)
+  min_ansible_version: 2.18
+  platforms:
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+        - trixie
+  galaxy_tags:
+    - system
+    - configuration
+    - locale
+    - timezone
+
+dependencies: []

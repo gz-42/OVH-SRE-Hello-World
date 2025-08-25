@@ -1,0 +1,4 @@
+---
+- name: regenerate locales
+  ansible.builtin.command: dpkg-reconfigure --frontend=noninteractive locales
+  listen: regenerate locales

@@ -1,0 +1,34 @@
+{
+  "ipv6": {{ docker_ipv6_enabled | default(true) | to_json }},
+  {% if docker_fixed_cidr_v4 is defined and docker_fixed_cidr_v4 %}
+  "fixed-cidr": "{{ docker_fixed_cidr_v4 }}",
+  {% endif %}
+  {% if docker_ipv6_enabled and docker_fixed_cidr_v6 is defined and docker_fixed_cidr_v6 %}
+  "fixed-cidr-v6": "{{ docker_fixed_cidr_v6 }}",
+  {% endif %}
+  "iptables": true,
+  "ip-forward": true,
+  "userland-proxy": false,
+  "insecure-registries": {{ docker_insecure_registries | default([]) | to_json }},
+  "experimental": false,
+  "features": {{ docker_features | default({"buildkit": true}) | to_json }},
+  "registry-mirrors": {{ docker_registry_mirrors | default([]) | to_json }},
+  "storage-driver": "{{ docker_storage_driver | default('overlay2') }}",
+  "live-restore": {{ docker_live_restore | default(false) | to_json }},
+  {% if docker_exec_opts is defined and docker_exec_opts %}
+  "exec-opts": {{ docker_exec_opts | to_json }},
+  {% endif %}
+  {% if docker_log_driver is defined and docker_log_driver %}
+  "log-driver": "{{ docker_log_driver }}",
+  {% endif %}
+  {% if docker_log_opts is defined and docker_log_opts %}
+  "log-opts": {{ docker_log_opts | to_json }},
+  {% endif %}
+  {% if docker_default_address_pools is defined and docker_default_address_pools %}
+  "default-address-pools": {{ docker_default_address_pools | to_json }},
+  {% endif %}
+  {% if docker_daemon_extra is defined and docker_daemon_extra %}
+  "extra": {{ docker_daemon_extra | to_json }},
+  {% endif %}
+  "mtu": {{ docker_mtu | default(1500) }}
+}

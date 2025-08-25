@@ -1,0 +1,69 @@
+---
+ - name: Ensure required packages for repository management are present
+   ansible.builtin.apt:
+     name:
+       - gnupg
+       - apt-transport-https
+       - ca-certificates
+       - wget
+     state: present
+     update_cache: yes
+
+ - name: Download HashiCorp GPG key to a temporary file
+   ansible.builtin.get_url:
+     url: https://apt.releases.hashicorp.com/gpg
+     dest: /tmp/hashicorp-archive-key.asc
+     mode: '0644'
+     force: no
+   register: hashicorp_key_download
+
+ - name: Convert HashiCorp key to binary keyring
+   ansible.builtin.command:
+     cmd: gpg --dearmor --yes --output /usr/share/keyrings/hashicorp-archive-keyring.gpg /tmp/hashicorp-archive-key.asc
+   args:
+     creates: /usr/share/keyrings/hashicorp-archive-keyring.gpg
+   when: hashicorp_key_download is changed
+
+ - name: Remove temporary HashiCorp ascii key
+   ansible.builtin.file:
+     path: /tmp/hashicorp-archive-key.asc
+     state: absent
+
+ - name: Determine distribution codename for apt source (uses gathered facts)
+   ansible.builtin.set_fact:
+     hashicorp_codename: "{{ (ansible_lsb.codename | default('')) or (ansible_distribution_release | default('')) }}"
+
+ - name: Map architecture to HashiCorp apt arch name
+   ansible.builtin.set_fact:
+     hashicorp_arch: >-
+       {{ ({'x86_64':'amd64','aarch64':'arm64','armv7l':'armhf','i386':'i386'}).get(ansible_architecture, ansible_architecture) }}
+
+ - name: Create HashiCorp apt sources list using detected codename
+   ansible.builtin.copy:
+     dest: /etc/apt/sources.list.d/hashicorp.list
+     owner: root
+     group: root
+     mode: '0644'
+     content: "deb [arch={{ hashicorp_arch | default(ansible_architecture) }} signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com {{ hashicorp_codename }} main\n"
+   when: hashicorp_codename != ''
+
+ - name: Update apt cache after adding HashiCorp repo
+   ansible.builtin.apt:
+     update_cache: yes
+
+ - name: Install terraform package
+   ansible.builtin.apt:
+     name: "{{ 'terraform=' + terraform_version if (terraform_version is defined and terraform_version | length > 0) else 'terraform' }}"
+     state: present
+   when: terraform_install | default(true) | bool
+
+ - name: Full-upgrade system packages
+   ansible.builtin.apt:
+     upgrade: full
+   when: terraform_full_upgrade | default(false) | bool
+
+ - name: Enable terraform bash autocompletion
+   ansible.builtin.command:
+     cmd: terraform -install-autocomplete
+   changed_when: false
+   when: terraform_install | default(true) | bool

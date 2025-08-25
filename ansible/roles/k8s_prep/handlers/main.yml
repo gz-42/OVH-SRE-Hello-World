@@ -1,0 +1,11 @@
+---
+- name: reload sysctl
+  ansible.builtin.command: sysctl --system
+
+- name: set executable permissions for cni
+  ansible.builtin.file:
+    path: /opt/cni/bin
+    recurse: yes
+    mode: '0755'
+    owner: root
+    group: root

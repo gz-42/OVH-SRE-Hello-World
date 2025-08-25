@@ -1,0 +1,7 @@
+---
+- name: Inject SSH Key
+  hosts: all
+  vars_files:
+    - ../group_vars/all.yml
+  roles:
+    - { role: inject_ssh_key }

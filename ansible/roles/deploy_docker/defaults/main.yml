@@ -1,0 +1,33 @@
+---
+docker_package_state: present
+docker_apt_keyring: /etc/apt/keyrings/docker.asc
+docker_packages:
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+#  - docker-compose-plugin
+
+docker_users:
+  - "{{ ansible_user }}"
+docker_ipv6_enabled: true
+docker_live_restore: false
+docker_exec_opts:
+  - "native.cgroupdriver=systemd"
+docker_features:
+  buildkit: true
+docker_log_driver: "json-file"
+docker_log_opts:
+  max-size: "100m"
+  max-file: "3"
+docker_storage_driver: "overlay2"
+docker_mtu: 1500
+docker_default_address_pools:
+  - base: "172.20.0.0/16"
+    size: 24
+  - base: "fd20::/64"
+    size: 80
+docker_bridge_name: "docker0"
+docker_external_interface: "{{ ansible_default_ipv6.interface | default(ansible_default_ipv4.interface | default('ens18')) }}"
+docker_daemon_extra: {}
+docker_insecure_registries: []
+docker_registry_mirrors: []

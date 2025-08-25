@@ -1,0 +1,7 @@
+---
+- name: Harden Host Security
+  hosts: all
+  vars_files:
+    - ../group_vars/all.yml
+  roles:
+    - { role: harden_host_security }

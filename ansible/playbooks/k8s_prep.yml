@@ -1,0 +1,7 @@
+---
+- name: K8s Prep
+  hosts: all
+  vars_files:
+    - ../group_vars/all.yml
+  roles:
+    - { role: k8s_prep }

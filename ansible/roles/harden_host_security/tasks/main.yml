@@ -1,0 +1,156 @@
+---
+- name: Ensure backup directory exists
+  ansible.builtin.file:
+    path: "{{ backup_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+- name: Backup /etc/ssh
+  ansible.builtin.command:
+    cmd: "tar czf {{ backup_dir }}/ssh_backup_{{ ansible_date_time.iso8601_basic }}.tgz /etc/ssh"
+  args:
+    creates: "{{ backup_dir }}/ssh_backup_{{ ansible_date_time.iso8601_basic }}.tgz"
+
+- name: Install fail2ban
+  apt:
+    name: fail2ban
+    state: present
+    update_cache: yes
+
+- name: Deploy fail2ban jail.local
+  template:
+    src: fail2ban/jail.local.j2
+    dest: /etc/fail2ban/jail.local
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart fail2ban
+
+- name: Ensure fail2ban conf disables IPv6
+  ansible.builtin.lineinfile:
+    path: /etc/fail2ban/fail2ban.conf
+    regexp: '^#?\s*allowipv6\s*=.*'
+    line: 'allowipv6 = no'
+    create: yes
+    backup: yes
+  notify: restart fail2ban
+
+- name: Ensure fail2ban service has reloaded so new jail is active
+  meta: flush_handlers
+
+- name: Ensure fail2ban service is running and enabled
+  ansible.builtin.service:
+    name: fail2ban
+    state: started
+    enabled: yes
+
+- name: Wait for fail2ban socket to be created
+  ansible.builtin.wait_for:
+    path: /var/run/fail2ban/fail2ban.sock
+    state: present
+    timeout: 30
+
+- name: Check if fail2ban 'sshd' jail is present
+  ansible.builtin.command:
+    cmd: fail2ban-client status sshd
+  register: fail2ban_sshd_status
+  failed_when: false
+  changed_when: false
+
+- name: Add 'sshd' jail to fail2ban if missing
+  ansible.builtin.command:
+    cmd: fail2ban-client add sshd
+  when: fail2ban_sshd_status.rc != 0
+  register: fail2ban_add
+  retries: 3
+  delay: 2
+  until: fail2ban_add.rc == 0
+  changed_when: fail2ban_add.rc == 0
+
+- name: Restart fail2ban
+  ansible.builtin.service:
+    name: fail2ban
+    state: restarted
+
+- name: Rotate ED25519 and RSA Host Keys
+  block:
+    - name: Remove existing host keys
+      ansible.builtin.file:
+        path: /etc/ssh/ssh_host_*
+        state: absent
+        force: yes
+    - name: Generate ED25519 host key
+      ansible.builtin.command:
+        cmd: ssh-keygen -t ed25519 -f /etc/ssh/ssh_host_ed25519_key -N ''
+      args:
+        creates: /etc/ssh/ssh_host_ed25519_key
+    - name: Generate RSA host key
+      ansible.builtin.command:
+        cmd: ssh-keygen -t rsa -b 4096 -f /etc/ssh/ssh_host_rsa_key -N ''
+      args:
+        creates: /etc/ssh/ssh_host_rsa_key
+
+- name: Filter /etc/ssh/moduli to keep sufficiently large primes
+  block:
+    - name: Create safe moduli file
+      ansible.builtin.shell: "awk '$5 >= 3071' /etc/ssh/moduli > /etc/ssh/moduli.safe"
+      args:
+        creates: /etc/ssh/moduli.safe
+    - name: Replace moduli with safe file
+      ansible.builtin.copy:
+        src: /etc/ssh/moduli.safe
+        remote_src: yes
+        dest: /etc/ssh/moduli
+        owner: root
+        group: root
+        mode: '0644'
+      notify: restart ssh
+
+- name: Comment out PasswordAuthentication in sshd_config
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^\s*(PasswordAuthentication\s+\S+)'
+    line: '# \1'
+    backrefs: yes
+    backup: yes
+
+- name: Comment out X11Forwarding in sshd_config
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^\s*(X11Forwarding\s+\S+)'
+    line: '# \1'
+    backrefs: yes
+    backup: yes
+
+- name: Deploy sshd hardening drop-in from template
+  ansible.builtin.template:
+    src: sshd_config.d/ssh-audit_hardening.conf.j2
+    dest: /etc/ssh/sshd_config.d/ssh-audit_hardening.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: create rollback timer
+
+- name: Create rollback script
+  ansible.builtin.template:
+    src: restore-ssh-backup.sh.j2
+    dest: "{{ rollback_script_path }}"
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Start rollback timer (one-shot) to restore config if not confirmed
+  ansible.builtin.shell: |
+    /bin/bash -c '(
+      sleep {{ rollback_wait_seconds }} && \
+      if [ ! -f /tmp/ssh-hardening-ok ]; then {{ rollback_script_path }}; fi
+    ) &'
+  async: 0
+  poll: 0
+
+- name: Apply hardening
+  ansible.builtin.service:
+    name: ssh
+    state: reloaded
+  notify: remove rollback timer

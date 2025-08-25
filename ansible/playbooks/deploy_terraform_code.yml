@@ -1,0 +1,7 @@
+---
+- name: Deploy Terraform Code
+  hosts: all
+  vars_files:
+    - ../group_vars/all.yml
+  roles:
+    - { role: deploy_terraform_code }
