@@ -1,0 +1,73 @@
+name: Inject SSH Key
+
+on:
+  workflow_dispatch:
+
+jobs:
+  inject-ssh-key:
+    name: Inject SSH Key
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Ansible
+        run: |
+          python -m pip install --upgrade pip
+          pip install ansible
+
+      - name: Prepare Inventory
+        run: |
+          mkdir -p ansible/inventory
+          printf '%s\n' \
+            'all:' \
+            '  hosts:' \
+            '    vps-test:' \
+            "      ansible_host: \"${{ secrets.VPS_IP }}\"" \
+            "      ansible_user: \"${{ secrets.SSH_USER }}\"" \
+            "      ansible_port: \"${{ secrets.SSH_PORT }}\"" \
+            "      ansible_password: \"${{ secrets.ANSIBLE_SSH_PASS }}\"" \
+            '      ansible_python_interpreter: /usr/bin/python3' \
+            > ansible/inventory/hosts.yml
+
+      - name: Syntax Check
+        env:
+          ANSIBLE_ROLES_PATH: ansible/roles
+        run: ansible-playbook --syntax-check ansible/playbooks/inject_ssh_key.yml -i ansible/inventory/hosts.yml
+
+      - name: Run Inject-SSH-Key Playbook
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: 'False'
+          ANSIBLE_ROLES_PATH: ansible/roles
+          SSH_PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/.github/logs"
+          touch "$GITHUB_WORKSPACE/.github/logs/inject_ssh_key.log" || true
+          ANSIBLE_STDOUT_CALLBACK=default ansible-playbook ansible/playbooks/inject_ssh_key.yml -i ansible/inventory/hosts.yml 2>&1 | tee "$GITHUB_WORKSPACE/.github/logs/inject_ssh_key.log"
+
+      - name: Sanitize Logs
+        if: always()
+        env:
+          ANSIBLE_SSH_PASS: ${{ secrets.ANSIBLE_SSH_PASS }}
+          VPS_IP: ${{ secrets.VPS_IP }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+        run: |
+          LOG="$GITHUB_WORKSPACE/.github/logs/inject_ssh_key.log"
+          [ -f "$LOG" ] || exit 0
+          if [ -n "$ANSIBLE_SSH_PASS" ]; then PW_ESC=$(printf '%s' "$ANSIBLE_SSH_PASS" | sed 's/[\/&]/\\&/g'); sed -i "s|$PW_ESC|[REDACTED_ANSIBLE_SSH_PASS]|g" "$LOG" || true; fi
+          if [ -n "$VPS_IP" ]; then IP_ESC=$(printf '%s' "$VPS_IP" | sed 's/[\/&]/\\&/g'); sed -i "s|$IP_ESC|[REDACTED_VPS_IP]|g" "$LOG" || true; fi
+          if [ -n "$SSH_USER" ]; then USER_ESC=$(printf '%s' "$SSH_USER" | sed 's/[\/&]/\\&/g'); sed -i "s|$USER_ESC|[REDACTED_SSH_USER]|g" "$LOG" || true; fi
+          if [ -n "$SSH_PORT" ]; then PORT_ESC=$(printf '%s' "$SSH_PORT" | sed 's/[\/&]/\\&/g'); sed -i "s|$PORT_ESC|[REDACTED_SSH_PORT]|g" "$LOG" || true; fi
+
+      - name: Upload Logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: inject-ssh-key-logs
+          path: ${{ github.workspace }}/.github/logs/inject_ssh_key.log

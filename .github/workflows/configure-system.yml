@@ -1,0 +1,80 @@
+name: Configure System
+
+on:
+  workflow_dispatch:
+
+jobs:
+  configure-system:
+    name: Configure System
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Ansible
+        run: |
+          python -m pip install --upgrade pip
+          pip install ansible
+
+      - name: Setup SSH private key for runner
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Prepare Inventory
+        run: |
+          mkdir -p ansible/inventory
+          printf '%s\n' \
+            'all:' \
+            '  hosts:' \
+            '    vps-test:' \
+            "      ansible_host: \"${{ secrets.VPS_IP }}\"" \
+            "      ansible_user: \"${{ secrets.SSH_USER }}\"" \
+            "      ansible_port: \"${{ secrets.SSH_PORT }}\"" \
+            '      ansible_python_interpreter: /usr/bin/python3' \
+            > ansible/inventory/hosts.yml
+
+      - name: Syntax Check
+        env:
+          ANSIBLE_ROLES_PATH: ansible/roles
+        run: ansible-playbook --syntax-check ansible/playbooks/configure_system.yml -i ansible/inventory/hosts.yml
+
+      - name: Run Configure-System Playbook
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/.github/logs"
+          touch "$GITHUB_WORKSPACE/.github/logs/configure_system.log" || true
+          ANSIBLE_STDOUT_CALLBACK=default ansible-playbook ansible/playbooks/configure_system.yml -i ansible/inventory/hosts.yml -b 2>&1 | tee "$GITHUB_WORKSPACE/.github/logs/configure_system.log"
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: 'False'
+          ANSIBLE_ROLES_PATH: ansible/roles
+          SSH_PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
+          VPS_IP: ${{ secrets.VPS_IP }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+
+      - name: Sanitize Logs
+        if: always()
+        env:
+          SSH_PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
+          VPS_IP: ${{ secrets.VPS_IP }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+        run: |
+          LOG="$GITHUB_WORKSPACE/.github/logs/configure_system.log"
+          [ -f "$LOG" ] || exit 0
+          if [ -n "$SSH_PUBLIC_KEY" ]; then PUB_ESC=$(printf '%s' "$SSH_PUBLIC_KEY" | sed 's/[\/&]/\\&/g'); sed -i "s|$PUB_ESC|[REDACTED_SSH_PUBLIC_KEY]|g" "$LOG" || true; fi
+          if [ -n "$VPS_IP" ]; then IP_ESC=$(printf '%s' "$VPS_IP" | sed 's/[\/&]/\\&/g'); sed -i "s|$IP_ESC|[REDACTED_VPS_IP]|g" "$LOG" || true; fi
+          if [ -n "$SSH_USER" ]; then USER_ESC=$(printf '%s' "$SSH_USER" | sed 's/[\/&]/\\&/g'); sed -i "s|$USER_ESC|[REDACTED_SSH_USER]|g" "$LOG" || true; fi
+          if [ -n "$SSH_PORT" ]; then PORT_ESC=$(printf '%s' "$SSH_PORT" | sed 's/[\/&]/\\&/g'); sed -i "s|$PORT_ESC|[REDACTED_SSH_PORT]|g" "$LOG" || true; fi
+
+      - name: Upload Logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: configure-system-logs
+          path: ${{ github.workspace }}/.github/logs/configure_system.log

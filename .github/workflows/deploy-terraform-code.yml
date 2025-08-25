@@ -1,0 +1,115 @@
+name: Deploy Terraform Code into the VPS
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy-terraform-code:
+    name: Deploy Terraform Code
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Ansible
+        run: |
+          python -m pip install --upgrade pip
+          pip install ansible
+
+      - name: Setup SSH agent with private key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Prepare Inventory
+        run: |
+          mkdir -p ansible/inventory
+          printf '%s\n' \
+            'all:' \
+            '  hosts:' \
+            '    vps-test:' \
+            "      ansible_host: \"${{ secrets.VPS_IP }}\"" \
+            "      ansible_user: \"${{ secrets.SSH_USER }}\"" \
+            "      ansible_port: \"${{ secrets.SSH_PORT }}\"" \
+            '      ansible_python_interpreter: /usr/bin/python3' \
+            > ansible/inventory/hosts.yml
+
+      - name: Syntax Check
+        env:
+          ANSIBLE_ROLES_PATH: ansible/roles
+        run: ansible-playbook --syntax-check ansible/playbooks/deploy_terraform_code.yml -i ansible/inventory/hosts.yml
+
+      - name: Run Deploy-Terraform-Code Playbook
+        env:
+          ANSIBLE_ROLES_PATH: ansible/roles
+          ANSIBLE_HOST_KEY_CHECKING: 'False'
+          PROJECT_NAME: ${{ secrets.PROJECT_NAME }}
+          ROOT_DOMAIN_NAME: ${{ secrets.ROOT_DOMAIN_NAME }}
+          CLUSTER_NAME: ${{ secrets.CLUSTER_NAME }}
+          EMAIL: ${{ secrets.EMAIL }}
+          HELLO_WORLD_REPO: ${{ secrets.HELLO_WORLD_REPO }}
+          ARGOCD_HOSTNAME: ${{ secrets.ARGOCD_HOSTNAME }}
+          HELLO_WORLD_HOSTNAME: ${{ secrets.HELLO_WORLD_HOSTNAME }}
+          HELLO_WORLD_TLS_SECRET: ${{ secrets.HELLO_WORLD_TLS_SECRET }}
+          GRAFANA_HOSTNAME: ${{ secrets.GRAFANA_HOSTNAME }}
+          GRAFANA_PWD: ${{ secrets.GRAFANA_PWD }}
+          GRAFANA_TLS_SECRET: ${{ secrets.GRAFANA_TLS_SECRET }}
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_CHANNEL: ${{ secrets.SLACK_CHANNEL }}
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/.github/logs"
+          touch "$GITHUB_WORKSPACE/.github/logs/deploy_terraform_code.log" || true
+          ANSIBLE_STDOUT_CALLBACK=default ansible-playbook ansible/playbooks/deploy_terraform_code.yml -i ansible/inventory/hosts.yml 2>&1 | tee "$GITHUB_WORKSPACE/.github/logs/deploy_terraform_code.log"
+
+      - name: Sanitize Logs
+        if: always()
+        env:
+          SSH_PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
+          VPS_IP: ${{ secrets.VPS_IP }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          PROJECT_NAME: ${{ secrets.PROJECT_NAME }}
+          ROOT_DOMAIN_NAME: ${{ secrets.ROOT_DOMAIN_NAME }}
+          CLUSTER_NAME: ${{ secrets.CLUSTER_NAME }}
+          EMAIL: ${{ secrets.EMAIL }}
+          HELLO_WORLD_REPO: ${{ secrets.HELLO_WORLD_REPO }}
+          ARGOCD_HOSTNAME: ${{ secrets.ARGOCD_HOSTNAME }}
+          HELLO_WORLD_HOSTNAME: ${{ secrets.HELLO_WORLD_HOSTNAME }}
+          HELLO_WORLD_TLS_SECRET: ${{ secrets.HELLO_WORLD_TLS_SECRET }}
+          GRAFANA_HOSTNAME: ${{ secrets.GRAFANA_HOSTNAME }}
+          GRAFANA_PWD: ${{ secrets.GRAFANA_PWD }}
+          GRAFANA_TLS_SECRET: ${{ secrets.GRAFANA_TLS_SECRET }}
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_CHANNEL: ${{ secrets.SLACK_CHANNEL }}
+        run: |
+          LOG="$GITHUB_WORKSPACE/.github/logs/deploy_terraform_code.log"
+          [ -f "$LOG" ] || exit 0
+          if [ -n "$SSH_PUBLIC_KEY" ]; then PUB_ESC=$(printf '%s' "$SSH_PUBLIC_KEY" | sed 's/[\/&]/\\&/g'); sed -i "s|$PUB_ESC|[REDACTED_SSH_PUBLIC_KEY]|g" "$LOG" || true; fi
+          if [ -n "$VPS_IP" ]; then IP_ESC=$(printf '%s' "$VPS_IP" | sed 's/[\/&]/\\&/g'); sed -i "s|$IP_ESC|[REDACTED_VPS_IP]|g" "$LOG" || true; fi
+          if [ -n "$SSH_USER" ]; then USER_ESC=$(printf '%s' "$SSH_USER" | sed 's/[\/&]/\\&/g'); sed -i "s|$USER_ESC|[REDACTED_SSH_USER]|g" "$LOG" || true; fi
+          if [ -n "$SSH_PORT" ]; then PORT_ESC=$(printf '%s' "$SSH_PORT" | sed 's/[\/&]/\\&/g'); sed -i "s|$PORT_ESC|[REDACTED_SSH_PORT]|g" "$LOG" || true; fi
+          if [ -n "$PROJECT_NAME" ]; then PROJ_ESC=$(printf '%s' "$PROJECT_NAME" | sed 's/[\/&]/\\&/g'); sed -i "s|$PROJ_ESC|[REDACTED_PROJECT_NAME]|g" "$LOG" || true; fi
+          if [ -n "$ROOT_DOMAIN_NAME" ]; then ROOT_ESC=$(printf '%s' "$ROOT_DOMAIN_NAME" | sed 's/[\/&]/\\&/g'); sed -i "s|$ROOT_ESC|[REDACTED_ROOT_DOMAIN_NAME]|g" "$LOG" || true; fi
+          if [ -n "$CLUSTER_NAME" ]; then CLUSTER_ESC=$(printf '%s' "$CLUSTER_NAME" | sed 's/[\/&]/\\&/g'); sed -i "s|$CLUSTER_ESC|[REDACTED_CLUSTER_NAME]|g" "$LOG" || true; fi
+          if [ -n "$EMAIL" ]; then EMAIL_ESC=$(printf '%s' "$EMAIL" | sed 's/[\/&]/\\&/g'); sed -i "s|$EMAIL_ESC|[REDACTED_EMAIL]|g" "$LOG" || true; fi
+          if [ -n "$HELLO_WORLD_REPO" ]; then REPO_ESC=$(printf '%s' "$HELLO_WORLD_REPO" | sed 's/[\/&]/\\&/g'); sed -i "s|$REPO_ESC|[REDACTED_HELLO_WORLD_REPO]|g" "$LOG" || true; fi
+          if [ -n "$ARGOCD_HOSTNAME" ]; then ARGOCD_ESC=$(printf '%s' "$ARGOCD_HOSTNAME" | sed 's/[\/&]/\\&/g'); sed -i "s|$ARGOCD_ESC|[REDACTED_ARGOCD_HOSTNAME]|g" "$LOG" || true; fi
+          if [ -n "$HELLO_WORLD_HOSTNAME" ]; then HELLO_ESC=$(printf '%s' "$HELLO_WORLD_HOSTNAME" | sed 's/[\/&]/\\&/g'); sed -i "s|$HELLO_ESC|[REDACTED_HELLO_WORLD_HOSTNAME]|g" "$LOG" || true; fi
+          if [ -n "$HELLO_WORLD_TLS_SECRET" ]; then TLS_ESC=$(printf '%s' "$HELLO_WORLD_TLS_SECRET" | sed 's/[\/&]/\\&/g'); sed -i "s|$TLS_ESC|[REDACTED_HELLO_WORLD_TLS_SECRET]|g" "$LOG" || true; fi
+          if [ -n "$GRAFANA_HOSTNAME" ]; then GRAFANA_ESC=$(printf '%s' "$GRAFANA_HOSTNAME" | sed 's/[\/&]/\\&/g'); sed -i "s|$GRAFANA_ESC|[REDACTED_GRAFANA_HOSTNAME]|g" "$LOG" || true; fi
+          if [ -n "$GRAFANA_PWD" ]; then GRAFANA_PWD_ESC=$(printf '%s' "$GRAFANA_PWD" | sed 's/[\/&]/\\&/g'); sed -i "s|$GRAFANA_PWD_ESC|[REDACTED_GRAFANA_PWD]|g" "$LOG" || true; fi
+          if [ -n "$GRAFANA_TLS_SECRET" ]; then GRAFANA_TLS_ESC=$(printf '%s' "$GRAFANA_TLS_SECRET" | sed 's/[\/&]/\\&/g'); sed -i "s|$GRAFANA_TLS_ESC|[REDACTED_GRAFANA_TLS_SECRET]|g" "$LOG" || true; fi
+          if [ -n "$SLACK_WEBHOOK" ]; then SLACK_ESC=$(printf '%s' "$SLACK_WEBHOOK" | sed 's/[\/&]/\\&/g'); sed -i "s|$SLACK_ESC|[REDACTED_SLACK_WEBHOOK]|g" "$LOG" || true; fi
+          if [ -n "$SLACK_CHANNEL" ]; then SLACK_CHANNEL_ESC=$(printf '%s' "$SLACK_CHANNEL" | sed 's/[\/&]/\\&/g'); sed -i "s|$SLACK_CHANNEL_ESC|[REDACTED_SLACK_CHANNEL]|g" "$LOG" || true; fi
+
+      - name: Upload Logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform_prep-logs
+          path: ${{ github.workspace }}/.github/logs/deploy_terraform_code.log
