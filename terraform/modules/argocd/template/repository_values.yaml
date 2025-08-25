@@ -1,0 +1,6 @@
+configs:
+    repositories:
+        hello-world:
+            name: hello-world
+            url: ${hello_world_repo}
+            type: git
