@@ -1,0 +1,39 @@
+applications:
+  hello-world:
+    namespace: argocd
+    project: hello-world
+    source:
+      repoURL: ${hello_world_repo}
+      targetRevision: HEAD
+      path: charts/minikube/hello-world
+      helm:
+        valueFiles:
+          - values.yaml
+        values: |
+          host: ${hello_world_hostname}
+          tls_secret: ${hello_world_tls_secret}
+    destination:
+      server: https://kubernetes.default.svc
+      namespace: ${profile}
+    syncPolicy:
+      automated:
+        prune: true
+        selfHeal: true
+      syncOptions:
+        - CreateNamespace=true
+    
+projects:
+  hello-world:
+    namespace: argocd
+    description: hello-world
+    sourceRepos:
+      - '*'
+    destinations:
+      - namespace: ${profile}
+        server: https://kubernetes.default.svc
+    clusterResourceWhitelist:
+      - group: '*'
+        kind: '*'
+    namespaceResourceWhitelist:
+      - group: '*'
+        kind: '*'
