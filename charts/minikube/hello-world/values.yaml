@@ -4,4 +4,4 @@ replicaCount: 2
 
 image:
   name: ghcr.io/gz-42/ovh-sre-hello-world
-  tag: "2025.08.1"
+  tag: "2025.08.2"
