@@ -63,7 +63,7 @@ jobs:
           SSH_PORT: ${{ secrets.SSH_PORT }}
         run: |
           LOG="$GITHUB_WORKSPACE/.github/logs/k8s_prep.log"
-          [ -f "$LOG" ] || exit 0"
+          [ -f "$LOG" ] || exit 0
           if [ -n "$SSH_PUBLIC_KEY" ]; then PUB_ESC=$(printf '%s' "$SSH_PUBLIC_KEY" | sed 's/[\/&]/\\&/g'); sed -i "s|$PUB_ESC|[REDACTED_SSH_PUBLIC_KEY]|g" "$LOG" || true; fi
           if [ -n "$VPS_IP" ]; then IP_ESC=$(printf '%s' "$VPS_IP" | sed 's/[\/&]/\\&/g'); sed -i "s|$IP_ESC|[REDACTED_VPS_IP]|g" "$LOG" || true; fi
           if [ -n "$SSH_USER" ]; then USER_ESC=$(printf '%s' "$SSH_USER" | sed 's/[\/&]/\\&/g'); sed -i "s|$USER_ESC|[REDACTED_SSH_USER]|g" "$LOG" || true; fi
